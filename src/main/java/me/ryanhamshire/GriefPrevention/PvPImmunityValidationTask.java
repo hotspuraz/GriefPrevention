@@ -18,6 +18,7 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import org.bukkit.entity.Player;
 
 //sends a message to a player
@@ -49,7 +50,7 @@ class PvPImmunityValidationTask implements Runnable
         else
         {
             //otherwise check again in one minute
-            GriefPrevention.instance.getServer().getScheduler().scheduleSyncDelayedTask(GriefPrevention.instance, this, 1200L);
+            GPScheduler.runForEntity(player, this, 1200L);
         }
     }
 }

@@ -1,5 +1,6 @@
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import me.ryanhamshire.GriefPrevention.events.PreventPvPEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -783,7 +784,7 @@ public class EntityDamageHandler implements Listener
             if (projectile.getType() == EntityType.TRIDENT)
             {
                 // Instead of removing a trident, teleport it to the entity's foot location and remove velocity.
-                projectile.teleport(entity);
+                GPScheduler.teleport(projectile, entity.getLocation());
                 projectile.setVelocity(new Vector());
             }
             // Otherwise remove the projectile.

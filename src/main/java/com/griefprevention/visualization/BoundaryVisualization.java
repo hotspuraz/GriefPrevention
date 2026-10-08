@@ -1,5 +1,6 @@
 package com.griefprevention.visualization;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.CustomLogEntryTypes;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
@@ -97,8 +98,8 @@ public abstract class BoundaryVisualization
      */
     protected void scheduleRevert(@NotNull Player player, @NotNull PlayerData playerData)
     {
-        GriefPrevention.instance.getServer().getScheduler().scheduleSyncDelayedTask(
-                GriefPrevention.instance,
+        // Only touches player data, so the global scheduler is sufficient.
+        GPScheduler.runGlobalLater(
                 () -> {
                     // Only revert if this is the active visualization.
                     if (playerData.getVisibleBoundaries() == this) playerData.setVisibleBoundaries(null);
@@ -277,10 +278,7 @@ public abstract class BoundaryVisualization
         // If they are online and in the same world as the visualization, display the visualization next tick.
         if (visualization.canVisualize(player))
         {
-            GriefPrevention.instance.getServer().getScheduler().scheduleSyncDelayedTask(
-                    GriefPrevention.instance,
-                    new DelayedVisualizationTask(visualization, playerData, event),
-                    1L);
+            GPScheduler.runForEntity(player, new DelayedVisualizationTask(visualization, playerData, event), 1L);
         }
     }
 

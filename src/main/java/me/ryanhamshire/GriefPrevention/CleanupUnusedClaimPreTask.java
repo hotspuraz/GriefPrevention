@@ -18,6 +18,7 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 
@@ -82,7 +83,7 @@ class CleanupUnusedClaimPreTask implements Runnable
             return;
         }
 
-        //pass it back to the main server thread, where it's safe to delete a claim if needed
-        Bukkit.getScheduler().scheduleSyncDelayedTask(GriefPrevention.instance, new CleanupUnusedClaimTask(claimToExpire, ownerData, ownerInfo), 1L);
+        //pass it back to the main/global server thread, where it's safe to delete a claim if needed
+        GPScheduler.runGlobalLater(new CleanupUnusedClaimTask(claimToExpire, ownerData, ownerInfo), 1L);
     }
 }

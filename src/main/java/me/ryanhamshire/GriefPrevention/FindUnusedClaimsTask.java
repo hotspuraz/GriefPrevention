@@ -18,6 +18,7 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -54,7 +55,7 @@ class FindUnusedClaimsTask implements Runnable
             return;
         }
 
-        GriefPrevention.instance.getServer().getScheduler().runTaskAsynchronously(GriefPrevention.instance, new CleanupUnusedClaimPreTask(claimOwnerIterator.next()));
+        GPScheduler.runAsync(new CleanupUnusedClaimPreTask(claimOwnerIterator.next()));
     }
 
     public void refreshUUIDs()

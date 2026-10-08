@@ -18,6 +18,7 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import me.ryanhamshire.GriefPrevention.events.AccrueClaimBlocksEvent;
 import org.bukkit.entity.Player;
 
@@ -50,7 +51,7 @@ class DeliverClaimBlocksTask implements Runnable
             for (Player onlinePlayer : players)
             {
                 DeliverClaimBlocksTask newTask = new DeliverClaimBlocksTask(onlinePlayer, instance);
-                instance.getServer().getScheduler().scheduleSyncDelayedTask(instance, newTask, i++);
+                GPScheduler.runForEntity(onlinePlayer, newTask, i++);
             }
 
             return; //tasks started for each player

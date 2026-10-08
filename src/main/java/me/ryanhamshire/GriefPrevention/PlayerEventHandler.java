@@ -18,6 +18,8 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
+import com.griefprevention.platform.scheduler.TaskHandle;
 import com.griefprevention.protection.ProtectionHelper;
 import com.griefprevention.util.command.MonitorableCommand;
 import com.griefprevention.util.command.MonitoredCommands;
@@ -89,7 +91,6 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.profile.PlayerProfile;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.BlockIterator;
 import org.jetbrains.annotations.NotNull;
 
@@ -391,7 +392,7 @@ class PlayerEventHandler implements Listener
 
                 //kick and ban
                 PlayerKickBanTask task = new PlayerKickBanTask(player, instance.config_spam_banMessage, "GriefPrevention Anti-Spam", true);
-                instance.getServer().getScheduler().scheduleSyncDelayedTask(instance, task, 1L);
+                GPScheduler.runForEntity(player, task, 1L);
             }
             else
             {
@@ -400,7 +401,7 @@ class PlayerEventHandler implements Listener
 
                 //just kick
                 PlayerKickBanTask task = new PlayerKickBanTask(player, "", "GriefPrevention Anti-Spam", false);
-                instance.getServer().getScheduler().scheduleSyncDelayedTask(instance, task, 1L);
+                GPScheduler.runForEntity(player, task, 1L);
             }
         }
         else if (result.shouldWarnChatter)
@@ -607,7 +608,7 @@ class PlayerEventHandler implements Listener
             //if logging-in account is banned, remember IP address for later
             if (instance.config_smartBan && event.getResult() == Result.KICK_BANNED)
             {
-                this.tempBannedIps.add(new IpBanInfo(event.getAddress(), now + this.MILLISECONDS_IN_DAY, player.getName()));
+                synchronized (this.tempBannedIps) { this.tempBannedIps.add(new IpBanInfo(event.getAddress(), now + this.MILLISECONDS_IN_DAY, player.getName())); }
             }
         }
 
@@ -647,7 +648,7 @@ class PlayerEventHandler implements Listener
             if (instance.config_claims_worldModes.get(player.getWorld()) == ClaimsMode.Survival && !player.hasPermission("griefprevention.adminclaims") && this.dataStore.claims.size() > 10)
             {
                 WelcomeTask task = new WelcomeTask(player);
-                Bukkit.getScheduler().scheduleSyncDelayedTask(instance, task, instance.config_claims_manualDeliveryDelaySeconds * 20L);
+                GPScheduler.runForEntity(player, task, instance.config_claims_manualDeliveryDelaySeconds * 20L);
             }
         }
 
@@ -661,6 +662,8 @@ class PlayerEventHandler implements Listener
         if (instance.config_smartBan && !player.hasPlayedBefore())
         {
             //search temporarily banned IP addresses for this one
+            //(joins may be processed on different threads at once on Folia, so guard the list)
+            synchronized (this.tempBannedIps) {
             for (int i = 0; i < this.tempBannedIps.size(); i++)
             {
                 IpBanInfo info = this.tempBannedIps.get(i);
@@ -712,7 +715,7 @@ class PlayerEventHandler implements Listener
 
                         //ban player
                         PlayerKickBanTask task = new PlayerKickBanTask(player, "", "GriefPrevention Smart Ban - Shared Login:" + info.bannedAccountName, true);
-                        instance.getServer().getScheduler().scheduleSyncDelayedTask(instance, task, 10L);
+                        GPScheduler.runForEntity(player, task, 10L);
 
                         //silence join message
                         event.setJoinMessage("");
@@ -720,6 +723,7 @@ class PlayerEventHandler implements Listener
                         break;
                     }
                 }
+            }
             }
         }
 
@@ -752,7 +756,7 @@ class PlayerEventHandler implements Listener
                 {
                     //kick player
                     PlayerKickBanTask task = new PlayerKickBanTask(player, instance.dataStore.getMessage(Messages.TooMuchIpOverlap), "GriefPrevention IP-sharing limit.", false);
-                    instance.getServer().getScheduler().scheduleSyncDelayedTask(instance, task, 100L);
+                    GPScheduler.runForEntity(player, task, 100L);
 
                     //silence join message
                     event.setJoinMessage(null);
@@ -769,19 +773,15 @@ class PlayerEventHandler implements Listener
         {
             //If so, let him know and rescue him in 10 seconds. If he is in fact not trapped, hopefully chunks will have loaded by this time so he can walk out.
             GriefPrevention.sendMessage(player, TextMode.Info, Messages.NetherPortalTrapDetectionMessage, 20L);
-            new BukkitRunnable()
+            GPScheduler.runForEntity(player, () ->
             {
-                @Override
-                public void run()
+                if (player.getPortalCooldown() > 8 && player.hasMetadata("GP_PORTALRESCUE"))
                 {
-                    if (player.getPortalCooldown() > 8 && player.hasMetadata("GP_PORTALRESCUE"))
-                    {
-                        GriefPrevention.AddLogEntry("Rescued " + player.getName() + " from a nether portal.\nTeleported from " + GriefPrevention.getfriendlyLocationString(player.getLocation()) + " to " + GriefPrevention.getfriendlyLocationString((Location) player.getMetadata("GP_PORTALRESCUE").get(0).value()), CustomLogEntryTypes.Debug);
-                        player.teleport((Location) player.getMetadata("GP_PORTALRESCUE").get(0).value());
-                        player.removeMetadata("GP_PORTALRESCUE", instance);
-                    }
+                    GriefPrevention.AddLogEntry("Rescued " + player.getName() + " from a nether portal.\nTeleported from " + GriefPrevention.getfriendlyLocationString(player.getLocation()) + " to " + GriefPrevention.getfriendlyLocationString((Location) player.getMetadata("GP_PORTALRESCUE").get(0).value()), CustomLogEntryTypes.Debug);
+                    GPScheduler.teleport(player, (Location) player.getMetadata("GP_PORTALRESCUE").get(0).value());
+                    player.removeMetadata("GP_PORTALRESCUE", instance);
                 }
-            }.runTaskLater(instance, 200L);
+            }, 200L);
         }
         //Otherwise just reset cooldown, just in case they happened to logout again...
         else
@@ -794,10 +794,10 @@ class PlayerEventHandler implements Listener
             String joinMessage = event.getJoinMessage();
             if (joinMessage != null && !joinMessage.isEmpty())
             {
-                Integer taskID = this.heldLogoutMessages.get(player.getUniqueId());
-                if (taskID != null && Bukkit.getScheduler().isQueued(taskID))
+                TaskHandle heldMessageTask = this.heldLogoutMessages.get(player.getUniqueId());
+                if (heldMessageTask != null && heldMessageTask.isPending())
                 {
-                    Bukkit.getScheduler().cancelTask(taskID);
+                    heldMessageTask.cancel();
                     player.sendMessage(event.getJoinMessage());
                     event.setJoinMessage("");
                 }
@@ -825,7 +825,7 @@ class PlayerEventHandler implements Listener
     }
 
     //when a player dies...
-    private final HashMap<UUID, Long> deathTimestamps = new HashMap<>();
+    private final ConcurrentHashMap<UUID, Long> deathTimestamps = new ConcurrentHashMap<>();
 
     @EventHandler(priority = EventPriority.HIGHEST)
     void onPlayerDeath(PlayerDeathEvent event)
@@ -858,7 +858,7 @@ class PlayerEventHandler implements Listener
     }
 
     //when a player quits...
-    private final HashMap<UUID, Integer> heldLogoutMessages = new HashMap<>();
+    private final ConcurrentHashMap<UUID, TaskHandle> heldLogoutMessages = new ConcurrentHashMap<>();
 
     @EventHandler(priority = EventPriority.HIGHEST)
     void onPlayerQuit(PlayerQuitEvent event)
@@ -888,7 +888,7 @@ class PlayerEventHandler implements Listener
         if (isBanned && playerData.ipAddress != null)
         {
             long now = Calendar.getInstance().getTimeInMillis();
-            this.tempBannedIps.add(new IpBanInfo(playerData.ipAddress, now + this.MILLISECONDS_IN_DAY, player.getName()));
+            synchronized (this.tempBannedIps) { this.tempBannedIps.add(new IpBanInfo(playerData.ipAddress, now + this.MILLISECONDS_IN_DAY, player.getName())); }
         }
 
         //silence notifications when they're coming too fast
@@ -925,15 +925,15 @@ class PlayerEventHandler implements Listener
             if (quitMessage != null && !quitMessage.isEmpty())
             {
                 BroadcastMessageTask task = new BroadcastMessageTask(quitMessage);
-                int taskID = Bukkit.getScheduler().scheduleSyncDelayedTask(instance, task, 20L * instance.config_spam_logoutMessageDelaySeconds);
-                this.heldLogoutMessages.put(playerID, taskID);
+                TaskHandle taskHandle = GPScheduler.runGlobalLater(task, 20L * instance.config_spam_logoutMessageDelaySeconds);
+                this.heldLogoutMessages.put(playerID, taskHandle);
                 event.setQuitMessage("");
             }
         }
     }
 
     //determines whether or not a login or logout notification should be silenced, depending on how many there have been in the last minute
-    private boolean shouldSilenceNotification()
+    private synchronized boolean shouldSilenceNotification()
     {
         if (instance.config_spam_loginLogoutNotificationsPerMinute <= 0)
         {
@@ -1314,7 +1314,7 @@ class PlayerEventHandler implements Listener
             if (instance.claimsEnabledForWorld(player.getWorld()))
             {
                 EquipShovelProcessingTask task = new EquipShovelProcessingTask(player);
-                instance.getServer().getScheduler().scheduleSyncDelayedTask(instance, task, 15L);  //15L is approx. 3/4 of a second
+                GPScheduler.runForEntity(player, task, 15L);  //15L is approx. 3/4 of a second
             }
         }
     }

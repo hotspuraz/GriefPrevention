@@ -18,6 +18,7 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
@@ -66,7 +67,7 @@ class PlayerRescueTask implements Runnable
         }
         else
         {
-            player.teleport(this.destination);
+            GPScheduler.teleport(player, this.destination);
         }
 
         //log entry, in case admins want to investigate the "trap"

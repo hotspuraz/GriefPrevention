@@ -1,5 +1,6 @@
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.platform.scheduler.GPScheduler;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.ChunkSnapshot;
@@ -18,9 +19,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 //automatically extends a claim downward based on block types detected
 public class AutoExtendClaimTask implements Runnable
@@ -39,40 +44,98 @@ public class AutoExtendClaimTask implements Runnable
 
         if (world == null) return;
 
-        int lowestLootableTile = lesserCorner.getBlockY();
-        ArrayList<ChunkSnapshot> snapshots = new ArrayList<>();
+        ChunkCollector collector = new ChunkCollector(claim, world.getEnvironment(), lesserCorner.getBlockY());
+
+        List<int[]> chunkCoords = new ArrayList<>();
         for (int chunkX = lesserCorner.getBlockX() / 16; chunkX <= greaterCorner.getBlockX() / 16; chunkX++)
         {
             for (int chunkZ = lesserCorner.getBlockZ() / 16; chunkZ <= greaterCorner.getBlockZ() / 16; chunkZ++)
+            {
+                chunkCoords.add(new int[]{chunkX, chunkZ});
+            }
+        }
+
+        collector.expect(chunkCoords.size());
+        for (int[] coords : chunkCoords)
+        {
+            if (GPScheduler.isFolia())
+            {
+                // Chunks may be owned by different regions, so each must be read from its owning thread.
+                GPScheduler.runAtChunk(world, coords[0], coords[1], () -> collector.collect(world, coords[0], coords[1]), 1L);
+            }
+            else
+            {
+                collector.collect(world, coords[0], coords[1]);
+            }
+        }
+    }
+
+    /**
+     * Gathers chunk snapshots, possibly from multiple threads, and starts the asynchronous scan once every chunk has
+     * been visited.
+     */
+    private static final class ChunkCollector
+    {
+        private final Claim claim;
+        private final Environment environment;
+        private final Queue<ChunkSnapshot> snapshots = new ConcurrentLinkedQueue<>();
+        private final AtomicInteger lowestLootableTile;
+        private final AtomicInteger remaining = new AtomicInteger();
+
+        private ChunkCollector(@NotNull Claim claim, @NotNull Environment environment, int lowestY)
+        {
+            this.claim = claim;
+            this.environment = environment;
+            this.lowestLootableTile = new AtomicInteger(lowestY);
+        }
+
+        private void expect(int chunkCount)
+        {
+            remaining.set(chunkCount);
+        }
+
+        private void collect(@NotNull World world, int chunkX, int chunkZ)
+        {
+            try
             {
                 if (world.isChunkLoaded(chunkX, chunkZ))
                 {
                     Chunk chunk = world.getChunkAt(chunkX, chunkZ);
 
-                    // If we're on the main thread, access to tile entities will speed up the process.
-                    if (Bukkit.isPrimaryThread())
+                    // If we're on a thread that owns the chunk, access to tile entities will speed up the process.
+                    if (GPScheduler.isFolia() || Bukkit.isPrimaryThread())
                     {
                         // Find the lowest non-natural storage block in the chunk.
                         // This way chests, barrels, etc. are always protected even if player block definitions are lacking.
-                        lowestLootableTile = Math.min(lowestLootableTile, Arrays.stream(chunk.getTileEntities())
+                        int lowestInChunk = Arrays.stream(chunk.getTileEntities())
                                 // Accept only Lootable tiles that do not have loot tables.
                                 // Naturally generated Lootables only have a loot table reference until the container is
                                 // accessed. On access the loot table is used to calculate the contents and removed.
                                 // This prevents claims from always extending over unexplored structures, spawners, etc.
                                 .filter(tile -> tile instanceof Lootable lootable && lootable.getLootTable() == null)
                                 // Return smallest value or default to existing min Y if no eligible tiles are present.
-                                .mapToInt(BlockState::getY).min().orElse(lowestLootableTile));
+                                .mapToInt(BlockState::getY).min().orElse(Integer.MAX_VALUE);
+                        lowestLootableTile.accumulateAndGet(lowestInChunk, Math::min);
                     }
 
                     // Save a snapshot of the chunk for more detailed async block searching.
                     snapshots.add(chunk.getChunkSnapshot(false, true, false));
                 }
             }
+            finally
+            {
+                if (remaining.decrementAndGet() == 0) finish();
+            }
         }
 
-        Bukkit.getScheduler().runTaskAsynchronously(
-                GriefPrevention.instance,
-                new AutoExtendClaimTask(claim, snapshots, world.getEnvironment(), lowestLootableTile));
+        private void finish()
+        {
+            GPScheduler.runAsync(new AutoExtendClaimTask(
+                    claim,
+                    new ArrayList<>(snapshots),
+                    environment,
+                    lowestLootableTile.get()));
+        }
     }
 
     private final Claim claim;
@@ -108,7 +171,7 @@ public class AutoExtendClaimTask implements Runnable
         int newY = this.getLowestBuiltY();
         if (newY < this.claim.getLesserBoundaryCorner().getBlockY())
         {
-            Bukkit.getScheduler().runTask(GriefPrevention.instance, new ExecuteExtendClaimTask(claim, newY));
+            GPScheduler.runGlobal(new ExecuteExtendClaimTask(claim, newY));
         }
     }
 

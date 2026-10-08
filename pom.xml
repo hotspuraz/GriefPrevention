@@ -20,6 +20,8 @@
 
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
+        <!-- Build number appended to the jar name. Override with -Dbuild.number=N -->
+        <build.number>1</build.number>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <!-- Default empty argument line to prevent Surefire config causing crashes if no other JVM args are set. -->
@@ -48,7 +50,7 @@
     </repositories>
 
     <build>
-        <finalName>${project.name}</finalName>
+        <finalName>${project.name}-b${build.number}</finalName>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -108,6 +110,10 @@
                     <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off -Dnet.bytebuddy.experimental=true</argLine>
                     <!-- GitHub Actions offers 2 cores for Linux. -->
                     <forkCount>2</forkCount>
+                    <!-- Paper API is listed first for compilation (Folia APIs), but its Bukkit class cannot be initialised by the mocks. -->
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>io.papermc.paper:paper-api</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
                     <!--
                         This is somewhat required for testing Bukkit code due to Bukkit's design.
                         There are so many static fields so deeply intertwined with each other
@@ -160,20 +166,21 @@
     </build>
 
     <dependencies>
-        <!-- Bukkit API. Bukkit has never ever deployed a release version -->
-        <dependency>
-            <groupId>org.spigotmc</groupId>
-            <artifactId>spigot-api</artifactId>
-            <version>26.2-R0.1-SNAPSHOT</version>
-            <scope>provided</scope>
-        </dependency>
-        <!-- Paper API for Paper-specific features (optional at runtime) -->
+        <!-- Paper API for Paper/Folia-specific features (optional at runtime). Listed before the Spigot API so that its
+             patched Bukkit/Server/Entity classes (Folia schedulers, teleportAsync) take precedence at compile time. -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
             <version>[26.2.build,)</version>
             <scope>provided</scope>
             <optional>true</optional>
+        </dependency>
+        <!-- Bukkit API. Bukkit has never ever deployed a release version -->
+        <dependency>
+            <groupId>org.spigotmc</groupId>
+            <artifactId>spigot-api</artifactId>
+            <version>26.2-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
         </dependency>
         <!-- Annotations for nullity and other behaviors -->
         <dependency>

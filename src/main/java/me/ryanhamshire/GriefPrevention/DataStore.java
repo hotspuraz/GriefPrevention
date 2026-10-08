@@ -57,6 +57,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -71,10 +72,11 @@ public abstract class DataStore
     protected ConcurrentHashMap<String, Integer> permissionToBonusBlocksMap = new ConcurrentHashMap<>();
 
     //in-memory cache for claim data
-    ArrayList<Claim> claims = new ArrayList<>();
+    //copy-on-write: read from many region threads on Folia, written rarely
+    List<Claim> claims = new CopyOnWriteArrayList<>();
     // claim id to claim cache
     public final Map<Long, Claim> claimIDMap = new ConcurrentHashMap<>();
-    ConcurrentHashMap<Long, ArrayList<Claim>> chunksToClaimsMap = new ConcurrentHashMap<>();
+    ConcurrentHashMap<Long, List<Claim>> chunksToClaimsMap = new ConcurrentHashMap<>();
 
     //in-memory cache for messages
     private String[] messages;
@@ -481,10 +483,10 @@ public abstract class DataStore
         ArrayList<Long> chunkHashes = claim.getChunkHashes();
         for (Long chunkHash : chunkHashes)
         {
-            ArrayList<Claim> claimsInChunk = this.chunksToClaimsMap.get(chunkHash);
+            List<Claim> claimsInChunk = this.chunksToClaimsMap.get(chunkHash);
             if (claimsInChunk == null)
             {
-                this.chunksToClaimsMap.put(chunkHash, claimsInChunk = new ArrayList<>());
+                this.chunksToClaimsMap.put(chunkHash, claimsInChunk = new CopyOnWriteArrayList<>());
             }
 
             claimsInChunk.add(claim);
@@ -496,18 +498,10 @@ public abstract class DataStore
         ArrayList<Long> chunkHashes = claim.getChunkHashes();
         for (Long chunkHash : chunkHashes)
         {
-            ArrayList<Claim> claimsInChunk = this.chunksToClaimsMap.get(chunkHash);
+            List<Claim> claimsInChunk = this.chunksToClaimsMap.get(chunkHash);
             if (claimsInChunk != null)
             {
-                for (Iterator<Claim> it = claimsInChunk.iterator(); it.hasNext(); )
-                {
-                    Claim c = it.next();
-                    if (c.id.equals(claim.id))
-                    {
-                        it.remove();
-                        break;
-                    }
-                }
+                claimsInChunk.removeIf(c -> c.id.equals(claim.id));
                 if (claimsInChunk.isEmpty())
                 { // if nothing's left, remove this chunk's cache
                     this.chunksToClaimsMap.remove(chunkHash);
@@ -724,7 +718,7 @@ public abstract class DataStore
 
         //find a top level claim
         Long chunkID = getChunkHash(location);
-        ArrayList<Claim> claimsInChunk = this.chunksToClaimsMap.get(chunkID);
+        List<Claim> claimsInChunk = this.chunksToClaimsMap.get(chunkID);
         if (claimsInChunk == null) return null;
 
         for (Claim claim : claimsInChunk)
@@ -767,7 +761,7 @@ public abstract class DataStore
 
     public Collection<Claim> getClaims(int chunkx, int chunkz)
     {
-        ArrayList<Claim> chunkClaims = this.chunksToClaimsMap.get(getChunkHash(chunkx, chunkz));
+        List<Claim> chunkClaims = this.chunksToClaimsMap.get(getChunkHash(chunkx, chunkz));
         if (chunkClaims != null)
         {
             return Collections.unmodifiableCollection(chunkClaims);
@@ -788,7 +782,7 @@ public abstract class DataStore
         {
             for (int chunkZ = boundingBox.getMinZ() >> 4; chunkZ <= chunkZMax; ++chunkZ)
             {
-                ArrayList<Claim> chunkClaims = this.chunksToClaimsMap.get(getChunkHash(chunkX, chunkZ));
+                List<Claim> chunkClaims = this.chunksToClaimsMap.get(getChunkHash(chunkX, chunkZ));
                 if (chunkClaims == null) continue;
 
                 for (Claim claim : chunkClaims)
@@ -942,7 +936,7 @@ public abstract class DataStore
         newClaim.parent = parent;
 
         //ensure this new claim won't overlap any existing claims
-        ArrayList<Claim> claimsToCheck;
+        List<Claim> claimsToCheck;
         if (newClaim.parent != null)
         {
             claimsToCheck = newClaim.parent.children;

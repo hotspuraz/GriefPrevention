@@ -42,7 +42,7 @@ public final class ServerMocks
                 Keyed keyed = mock(arg);
                 doReturn(key).when(keyed).getKey();
                 return keyed;
-            }).when(registry).get(notNull());
+            }).when(registry).get(notNull(NamespacedKey.class));
             return registry;
         }).when(mock).getRegistry(notNull());
 
