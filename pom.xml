@@ -20,8 +20,8 @@
 
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
-        <!-- Build number appended to the jar name. Override with -Dbuild.number=N -->
-        <build.number>1</build.number>
+        <!-- Release version appended to the jar name. Override with -Drelease.version=X.Y.Z -->
+        <release.version>17.0.0</release.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <!-- Default empty argument line to prevent Surefire config causing crashes if no other JVM args are set. -->
@@ -50,7 +50,7 @@
     </repositories>
 
     <build>
-        <finalName>${project.name}-b${build.number}</finalName>
+        <finalName>${project.name}-${release.version}</finalName>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
